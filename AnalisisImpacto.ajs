@@ -1,0 +1,1161 @@
+﻿/*
+ * New Archi Script
+ */
+ 
+console.log("Analisis Cualitativo: Tecnica de Analisis de Impacto del Cambio");
+
+/// Funcion para verificar si es un relacion o una entidad
+function es_relacion(e)
+{
+    return(e == "access-relationship" || e  == "serving-relationship" || e == "triggering-relationship" || e == "aggregation-relationship" || e == "composition-relationship" || e == "assignment-relationship" || e == "realization-relationship" || e == "association-relationship" || e == "flow-relationship"  || e == "specialization-relationship");
+}
+
+/// Colores usados 
+var ROJO = '1';
+var NARANJA = '2';
+var AMARILLO = '3';
+var VERDE = '4';;
+var COLOR_EXTMOD = '5';
+
+/// Tipos de cambios
+var NINGUNO = '0';
+var EXTENSION = '1';
+var MODIFICACION = '2';
+var ELIMINACION = '3';
+
+/// Estt=ructura
+var grafo = {};
+var conceptos = [];
+var color = {};
+var marca = [];
+var avisos = [];
+var pred_suc = {};
+var cambios_vertice = {};
+var v_cola = [];
+
+/// Vertices: LLena un vector de conceptos que son los vertices
+function vertices()
+{
+    $("concept").each(function(concept) {
+    
+        if(!es_relacion(concept.type)) 
+        {
+            conceptos[conceptos.length] = concept.name;
+        }
+    });
+}
+
+/// Imprimir el grafo
+function imprimir_grafo(grafo)
+{
+    for(var key in grafo) 
+    {
+        var value = grafo[key];
+        console.log("Clave: " + key);
+        console.log(value);
+        // do something with "key" and "value" variables
+    }
+}
+
+/// Procediemiento que dado los conceptos asocia un vertice x a un vertice adyacente
+/// y la relacion asociada.
+
+function llenar_grafo()
+{
+    for(var i = 0; i < conceptos.length; i++)
+    {
+        var adyacencias = [];
+        $("relationship").each(function(e)
+        {   
+            var ady = [];
+            if(conceptos[i] == e.source.name)
+            {
+                ady[0] = e.target.name;
+                ady[1] = e.type;
+                adyacencias[adyacencias.length] = ady;
+            }
+        });
+        grafo[conceptos[i]]  = adyacencias;
+    }
+}
+
+/// Dado un vertice obtiene los vertices predecesores, es decir 
+///los vertices asociados a relaciones de llegada a un vertice
+function predecesores(v)
+{
+    var predecesores = {};
+    var ady_predecesoras = [];
+    for(var key in grafo) 
+    {
+        var value = grafo[key];
+        for (var i = 0; i < value.length; i++) 
+        {
+            var ady_aux = [];
+            if(value[i][0] == v)
+            {
+                ady_aux [0] = key;
+                ady_aux [1] = value[i][1];
+                ady_predecesoras[ady_predecesoras.length] = ady_aux;
+            }
+        }
+    }
+    predecesores[v] = ady_predecesoras;
+    return predecesores;
+}
+
+//// Retorna la cantidad de Predecesores
+function cant_pred(v) 
+{
+    var cant_p = 0;
+    for(var key in grafo) 
+    {
+        var value = grafo[key];
+        for (var i = 0; i < value.length; i++) 
+        {
+            if(value[i][0] == v)
+            {
+                cant_p = cant_p + 1;
+            }
+        }
+    }
+    return cant_p;
+}
+
+/// Retorna los sucesores , es decir la entidades , cuyas relaciones salen de v
+function sucesores(v)
+{
+    var sucesores = {};
+    var ady_sucesores = [];
+    ady_sucesores = grafo[v]
+    sucesores[v] = ady_sucesores;
+    ady_sucesores.length;
+    return(sucesores);
+}
+
+/// Retorna una cantidad de Sucesores
+function cant_suc(v)
+{
+    var sucesores = {};
+    var ady_sucesores = [];
+    if(grafo[v] != null || grafo[v] != undefined)
+    {
+        ady_sucesores = grafo[v]
+        return (ady_sucesores.length);
+    }else{
+        return 0;
+    }  
+}
+
+/// Tamanho del diccionario . Informacion adicional que puede servir de apoyo
+function tam_dic(dic , k)
+{
+    var vector_ady = dic[k];
+    if(dic[k] != null || dic[k] != undefined)
+    {
+        return (vector_ady.length);
+    }else{
+        return 0;
+    }
+}
+
+/*** Muestra una ventana que permite elegir al usuario el tipo
+ *   de cambio a seleccionar***/
+function ventana() {
+    var opcion = window.prompt("CONSIDERE GUARDAR UNA COPIA DE ESTE DIAGRAMA, YA QUE SERA MODIFICADO. \n El cambio ha realizar es:\n 0) Ninguno\n 1) Extender \n 2) Modificar \n 3) Eliminar \n colocar un numero segun la opcion", "0");
+    var cambio;
+    if(opcion == 0)
+    {
+        cambio = NINGUNO;
+    }else{
+        if(opcion == 1)
+        {
+            cambio = EXTENSION;
+        }else{
+            if(opcion == 2)
+            {
+                cambio = MODIFICACION;    
+            }else{
+                cambio = ELIMINACION;
+            }
+        }
+    }
+    return cambio;
+}
+
+
+/// Asigna el color al diccionario color
+function pintar_entidad(vertice, impacto_color)
+{
+    color[vertice] = impacto_color;
+}
+
+
+/// Funcion que verifica si ya se marco el vertice como apoyo para el recorrido DFS
+function esta_marcada(v)
+{
+    var i = 0;
+    var esta = false;
+    
+    while(i < marca.length && esta == false)
+    {
+        if(marca[i] == v)
+        {
+            esta = true;
+        }
+        i = i + 1;
+    }
+    return (esta);
+}
+
+/// Ya que el recorrido es un DFS se almacena en una cola que sera
+/// usada para recorrer los adyacentes de una entidad destino
+function esta_elem(v_cola, v) {
+    var i = 0;
+    var esta = false;
+    
+    while(i < v_cola.length && esta == false)
+    {
+        if(v_cola[i] == v)
+        {
+            esta = true;
+        }
+        i = i + 1;
+    }
+    return (esta);
+}
+
+///Reglas de Analisis de Impacto del cambio  desde una entidad Origen a una entidad destino o A a B
+function access_OD (origen, destino, cambio)
+{
+    var cambio_consecuente; 
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Una Extension \"" + origen + "\"puede implicar una extension en \"" + destino + "\"\nNecesita una manera distinta de acceder a los datos de\"" + destino + "\".";
+            console.log("* Una Extension \"" + origen + "\" puede implicar una extension en \"" + destino + "\"\nNecesita una manera distinta de acceder a los datos de\"" + destino + "\".\n");
+            color[destino] = AMARILLO;
+            cambio_consecuente = EXTENSION; 
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Una modificacion de\"" + origen + "\" implica una modificacion en \"" + destino + "\"\nPara mantener la integridad de los datos";
+            console.log("* Una modificacion en la entidad \"" + origen + "\" implica una modificacion en \"" + destino + "\"\n Para mantener la integridad de los datos.\n");
+            color[destino] = NARANJA;  
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break;
+        case ELIMINACION:
+            avisos[avisos.length] = "Al eliminar la entidada \""  + origen + "\" No hay efecto en \"" + destino + "\".";
+            console.log("* Al eliminar la entidada \""  + origen + "\" No hay efecto en \"" + destino + "\".\n"); 
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + origen + "\" a la entidad \"" + destino + "\"\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+
+}
+
+function use_OD(origen, destino, cambio)
+{
+    var cambio_consecuente;
+    ///console.log("ERROR Origen \"" + origen + "\" Destino" +  destino + "\" EL CAMBIO ES " +cambio);
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Al extender \"" + origen + "\" no hay un impacto en \"" + destino + "\".\n";
+            console.log("* Al extender \"" + origen + "\" no hay un impacto en \"" + destino + "\".\n" );
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Al modificar \""+ origen  + "\" se requiere modificar el \"" + destino + "\" La viejas funcionalidades podrian no ser declaradas en el \"" + origen + "\".\n";
+            console.log("* Al modificar \""+ origen  + "\" se requiere modificar la entidad \"" + destino + "\".");
+            console.log("    La viejas funcionalidades podrian no ser declaradas en el \"" + origen + "\".\n");
+            color[destino] = NARANJA;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break; 
+        case ELIMINACION:
+            avisos[avisos.length] = "Al eliminar \"" + origen + "\". El \"" +  destino + "\" se ve afectado" + "\nLa dependencia queda colgando."
+            console.log("* Al eliminar \"" + origen + "\". El \"" +  destino + "\" se ve afectado");
+            console.log("    La entidad \"" + destino + "\" debe ser reasignado.\n");
+            color[destino] = ROJO;
+            cambio_consecuente = ELIMINACION;
+            return cambio_consecuente;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + origen + "\" a la entidad \"" + destino + "\"\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+function realization_OD(origen, destino, cambio)
+{
+    var cambio_consecuente;
+
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Al extender \"" + origen + "\" no hay efecto sobre \""+ destino + "\"."; 
+            console.log("* Al extender \"" + origen + "\" no hay efecto sobre \""+ destino + "\".\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Si modificas \"" + origen + "\" puede requerir una modificacion en la entidad \"" + destino + "\".";
+            console.log("* Si modificas \"" + origen +  "\" puede requerir una modificacion en la entidad \""+ destino + "\".\n");
+            color[destino] = NARANJA;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break;
+        case ELIMINACION:
+            avisos[avisos.length] = "si se elimina \"" + origen + "\" no existe razon para que exista \"" +  destino + "\"\n al menos que sea usado por otra entidad.";
+            console.log("* si se elimina \"" + origen + "\" no existe razon para que exista \"" +  destino + "\"\n al menos que sea usado por otra entidad\n");
+            color[destino] = ROJO;
+            cambio_consecuente = ELIMINACION;
+            return cambio_consecuente;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + origen + "\" a la entidad \"" + destino + "\"\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;        
+    }
+}
+
+
+function trigger_OD(origen, destino, cambio)
+{
+    var cambio_consecuente;
+
+    cambio_consecuente  = NINGUNO;
+    color[destino] = VERDE;
+    avisos[avisos.length] = "No hay un impacto del cambio desde \"" + origen + "\" a \"" + destino + "\" en la relacion trigger.";
+    console.log("* No hay un impacto del cambio desde \"" + origen + "\" a \"" + destino + "\" en la relacion trigger");
+    console.log("    Debe tener en consideracion que el proceso destino no posee alguna relacion.\n");
+    return cambio_consecuente;
+}
+
+function association_OD(origen , destino, cambio)
+{
+    var cambio_consecuente;
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Extender \"" + origen + "\" no trae algun efecto en \"" + destino + "\".";
+            console.log("* Extender \"" + origen + "\" no trae algun efecto en \"" + destino + "\".\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Modificar \"" + origen + "\" implica una extencion o modificacion en \"" + destino + "\".";
+            console.log("* Modificar \"" + origen + "\" implica una modificacion en \"" + destino  + "\".\n");
+            color[destino] = NARANJA;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break; 
+        case ELIMINACION:
+            avisos[avisos.length] = "Si se elimina \""+ origen + "\" afecta a \"" + destino + "\" en la association." + "Ya que no cuenta con la informacion suministrada";
+            console.log("* Si se elimina \""+ origen + "\" afecta a \"" + destino + "\" en la association");
+            console.log(" Ya que no cuenta con la informacion suministrada"  + ".\n");
+            color[destino] = ROJO;
+            cambio_consecuente = ELIMINACION;
+            return cambio_consecuente;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + origen + "\" a la entidad \"" + destino + "\"\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+function aggregation_OD(origen, destino, cambio)
+{
+    var cambio_consecuente;
+
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Al extender \"" + origen + "\", \"" + destino + "\"no sufre modificaciones.";
+            console.log("* Al extender \"" + origen + "\", \"" + destino + "\"no sufre modificaciones" + ".\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Al hacer una modificacion en \"" + origen + "\", la entidad \"" + destino + "\" puede requerir una modificacion o extencion.";
+            console.log("* Una modificacion en \"" + origen + "\", la entidad \"" + destino + "\" puede requerir una modificacion o extencion." + ".\n");
+            color[destino] = COLOR_EXTMOD;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break; 
+        case ELIMINACION:
+            var cantS, cantP;
+            cantS = cant_suc(destino)
+            if(cantS >= 1)
+            {
+                avisos[avisos.length] = "Al eliminar la entidad \"" + origen + "\" sigue existiendo \"" + destino + "\". Ya que es usada por otra entidad";
+                console.log("* Al eliminar la entidad \"" + origen + "\" sigue existiendo \"" + destino + "\". Ya que es usada por otra entidad" + ".\n");
+                color[destino] = VERDE;
+                cambio_consecuente = NINGUNO;
+            }else{
+                cantP = cant_pred(destino);
+                if(cantP > 1)
+                {
+                    avisos[avisos.length] = "Al eliminar la entidad \"" + origen + "\" sigue existiendo \"" + destino + "\". Ya que es usado por otra entidad";
+                    console.log("* Al eliminar la entidad \"" + origen + "\" sigue existiendo \"" + destino + "\". Ya que es usado por otra entidad. \n");
+                    color[destino] = VERDE;
+                    cambio_consecuente = NINGUNO;
+
+                }
+                else
+                {
+                    avisos[avisos.length] = "Al eliminar la entidad \"" + origen + "\" el \"" + destino + "\" es eliminado ya que no es usado por otro concepto, no tiene razon de seguir existiendo.";
+                    console.log("Al eliminar la entidad \"" + origen + "\" el \"" + destino + "\" es eliminado ya que no es usado por otro concepto, no tiene razon de seguir existiendo.\n");
+                    color[destino] = ROJO;
+                    cambio_consecuente = ELIMINACION;
+                }
+            }
+            return cambio_consecuente;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + origen + "\" a la entidad \"" + destino + "\"\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+function composition_OD(origen, destino, cambio)
+{
+    var cambio_consecuente;
+
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Al extender \"" + origen + "\" no se requiere una modificacion en  la entidad \"" + destino + "\".";
+            console.log("* Al extender \"" + origen + "\" no se requiere una modificacion en  la entidad \"" + destino + "\"\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Al modificar \"" + origen + "\" se requiere una extension o modificacion en \"" + destino + "\".";
+            console.log("* Al modificar \"" + origen + "\" se requiere una extension o modificacion en \"" + destino  + "\"\n");
+            color[destino] = COLOR_EXTMOD;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break; 
+        case ELIMINACION:
+            avisos[avisos.length] = "Al eleminar \"" + origen + "\" la entidad \"" + destino + "\" NO tiene razon de existir.";
+            console.log("* Al eleminar \"" + origen + "\" la entidad \"" + destino + "\" NO tiene razon de existir\n");
+            color[destino] = ROJO;
+            cambio_consecuente = ELIMINACION;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + origen + "\" a la entidad \"" + destino + "\"\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+function flow_OD(origen, destino, cambio)
+{
+    var cambio_consecuente;
+    
+    switch(cambio) 
+    {
+        case EXTENSION:
+            avisos[avisos.length] = "Al extender \"" + origen + "\" No se da algun efecto en \"" + destino + "\".";
+            console.log("* Al extender \"" + origen + "\" No se da algun efecto en \"" + destino  + "\"\n");
+            color[destino] = VERDE;
+            cambio_cons = NINGUNO
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Al modificar \"" + origen + "\" debe ser extendido o modificada la entidad \"" + destino + "\".";
+            console.log("* Al modificar \"" + origen + "\" debe ser extendido o modificada la entidad \"" + destino  + "\"\n");
+            color[destino] = COLOR_EXTMOD;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break; 
+        case ELIMINACION:
+            avisos[avisos.length] = "Al eliminar \"" + origen + "\" afectara la entidad \"" + destino + "\"\nNo se recibe informacion de \"" + origen + "\".";
+            console.log("* Al eliminar \"" + origen + "\" afectara a la entidad \"" + destino + "\"\n");
+            console.log("    No se recibe informacion de \"" + origen + "\"\n");
+            color[destino] = NARANJA;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break;
+        case NINGUNO:    
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + origen + "\" a la entidad \"" + destino + "\"\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+function assignment_OD(origen, destino, cambio)
+{
+    var cambio_consecuente;
+
+    switch(cambio) 
+    {
+        case EXTENSION:
+            avisos[avisos.length] = "Al extender \"" + origen + "\" No hay algun impacto sobre \"" + destino + "\".";
+            console.log("* Al extender \"" + origen + "\" No hay algun impacto sobre \"" + destino + "\"\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Al modificar \"" + origen + "\" No hay algun impacto sobre \"" + destino + "\".";
+            console.log("* Al modificar \"" + origen + "\" No hay algun impacto sobre \"" + destino+ "\"\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case ELIMINACION:
+            avisos[avisos.length] = "Al eliminar \"" + origen + "\" no hay un impacto directo sobre la entidad \"" + destino + "\"\nNo existe una entidad capaz de ejecutar \"" + destino + "\".";
+            console.log("* Al eliminar \"" + origen + "\" trae como consecuencia la ausencia de una entidad capaz de realizar \"" + destino + "\".");
+            console.log("  Se sugiere realizar una extension\n");
+            color[destino] = AMARILLO;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break; 
+        case NINGUNO:    
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + origen + "\" a la entidad \"" + destino + "\"\n");
+            color[destino] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+function no_efecto(verticeX, verticeY) 
+{
+    avisos[avisos.length] = "Al extender, modificar o eliminar la entidad \"" + verticeX + "\" No hay algun impacto sobre la entidad \"" + verticeY+ "\".";
+    console.log("* Al extender, modificar o eliminar la entiad \"" + verticeX + "\" No hay algun impacto sobre \"" + verticeY + "\"\n");
+    color[verticeY] = VERDE;
+    cambio_consecuente = NINGUNO;
+    return cambio_consecuente;
+}
+
+function  cual_color(v) {
+    switch (color[v])
+    {
+        case VERDE:
+            return ("Verde");
+            break;
+        case AMARILLO:
+            return("Amarillo");
+            break;
+        case NARANJA:
+            return("Naranja");
+            break;
+        case COLOR_EXTMOD:
+            return("Color: Rojo Naranja");
+            break;
+        case ROJO:
+            return("Rojo");
+            break;
+    }
+}
+
+function impacto_cambio_OD(origen, destino, relacion, cambio)
+{
+    ///Asigno Color
+    var cambio_consecuente;
+        if(cambio ==  NINGUNO)
+        {
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + origen + "\" a la entidad \"" + destino + "\"\n");
+            cambio_consecuente = NINGUNO;
+            color[destino] = VERDE;
+            return cambio_consecuente;
+        }
+        if(relacion == "access-relationship")
+        {
+            cambio_consecuente = access_OD(origen, destino, cambio);
+            return cambio_consecuente;
+        }
+        if(relacion == "serving-relationship")
+        {
+            cambio_consecuente = use_OD(origen, destino, cambio);
+            return cambio_consecuente;
+        }
+        if(relacion == "realization-relationship")
+        {
+            
+            cambio_consecuente = realization_OD(origen, destino, cambio);
+            ///console.log("origen " + origen + "destino " + destino + "Cambio " +  cambio + "Camb. Cons " +  cambio_consecuente + cual_color(origen));
+            return cambio_consecuente;
+        }
+        if(relacion == "triggering-relationship")
+        {	
+            cambio_consecuente = trigger_OD(origen, destino, cambio);	
+            return cambio_consecuente;
+        }
+        if(relacion == "association-relationship")
+        {
+            cambio_consecuente = association_OD(origen, destino, cambio);
+            return cambio_consecuente;
+        }
+        if(relacion == "aggregation-relationship")
+        {
+            cambio_consecuente = aggregation_OD(origen, destino, cambio);
+            return cambio_consecuente;
+        }
+        if(relacion == "composition-relationship")
+        {
+            cambio_consecuente = composition_OD(origen, destino, cambio);
+            return cambio_consecuente;
+        }
+        if(relacion == "assignment-relationship")
+        {
+            cambio_consecuente = assignment_OD(origen, destino, cambio);
+            return cambio_consecuente;
+        }
+        if(relacion == "flow-relationship")
+        {
+            cambio_consecuente = flow_OD(origen, destino, cambio);
+            return cambio_consecuente;
+        }
+        if(relacion == "specialization-relationship")
+        {
+            cambio_consecuente = no_efecto(origen, destino);
+            return cambio_consecuente;
+        }
+        if(relacion == 'junction' )
+        { 
+            cambio_consecuente =  no_efecto(origen, destino);
+            return cambio_consecuente;
+        }
+        if(relacion == 'groupin')
+        { 
+            cambio_consecuente =  no_efecto(origen, destino);
+            return cambio_consecuente;
+        }
+        
+}
+    
+//// DE LA ENTIDAD DESTINO A LA ORIGEM
+////=======================================================
+function assignment_DO(origen, destino, cambio)
+{
+    var cambio_consecuente;
+
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Al extender \"" + destino + "\" es necesario extender la entidad \"" + origen + "\".";
+            console.log("* Al extender \"" + destino + "\" es necesario extender la entidad \"" + origen+ "\"\n");
+            color[origen] = AMARILLO;
+            cambio_consecuente = EXTENSION;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Al modificar \"" + destino + "\" es necesario modificar la entidad \"" + origen + "\".";
+            console.log("* Al modificar \"" + destino + "\" es necesario modificar la entidad \"" + origen + "\"\n");
+            color[origen] = NARANJA;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break; 
+        case ELIMINACION:
+            avisos[avisos.length] = "Al eliminar \"" + destino + "\" es necesario eliminar la entidad  \"" + origen + "\".";
+            console.log("* Al eliminar \"" + destino + "\" es necesario eliminar la entidad  \"" + origen+ "\"\n");
+            color[origen] = ROJO;
+            cambio_consecuente = ELIMINACION;
+            return cambio_consecuente;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + destino + "\" a la entidad \"" + origen + "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+
+function flow_DO(origen, destino, cambio)
+{
+    var cambio_consecuente;
+
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Al extender \"" + destino + "\" No tiene algun impacto sobre \"" + origen + "\".";
+            console.log("Al extender \"" + destino + "\" No tiene algun impacto sobre \"" + origen + "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Al modificar \"" + destino + "\" no se requieren modificaciones sobre \"" + origen + "\".";
+            console.log("* Al modificar \"" + destino + "\" no se requieren modificaciones sobre \"" + origen +"\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break; 
+        case ELIMINACION:
+            avisos[avisos.length] = "Al eliminar \"" + destino + "\" No tiene algun impacto sobre \"" + origen + "\".El\" " + origen + "\" seguira suministrando informacion.";
+            console.log("* Al eliminar \"" + destino + "\" No tiene algun impacto sobre \"" + origen + "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + destino + "\" a la entidad \"" + origen + "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+function composition_DO(origen, destino, cambio)
+{
+    var cambio_consecuente;
+    
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Al extender \"" + destino + "\" no se requiere una modificacion en  la entidad \"" + origen + "\".";
+            console.log("* Al extender \"" + destino + "\" no se requiere una modificacion en  la entidad \"" + origen+ "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Al modificar \"" + destino + "\" se requiere una extencion o modificacion en \"" + origen + "\".";
+            console.log("* Al modificar \"" + destino + "\" se requiere una extencion o modificacion en \"" + origen + "\"\n");
+            color[origen] = COLOR_EXTMOD;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break; 
+        case ELIMINACION:
+            avisos[avisos.length] = "Al eliminar \"" + destino + "\", la entidad \"" + origen + "\"debe ser eliminada.";
+            console.log("* Al eliminar \"" + destino + "\", la entidad \"" + origen + "\" debe ser eliminada.\n");
+            color[origen] = ROJO;
+            cambio_consecuente = ELIMINACION ;
+            return cambio_consecuente;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + destino + "\" a la entidad \"" + origen + "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+function aggregation_DO(origen, destino, cambio)
+{ 
+    var cambio_consecuente;
+
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Al extender \"" + destino + "\", \""+ origen + "\" no requiere alguna modificacion."; 
+            console.log("* Al extender \"" + destino + "\", \""+ origen + "\" no requiere alguna modificacion\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Al modificar \"" + destino + "\" se debe modificar \"" + origen + "\".";
+            console.log("* Al modificar \"" + destino + "\" se debe modificar \"" + origen + "\"\n");
+            color[origen] = NARANJA;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break; 
+        case ELIMINACION:
+            avisos[avisos.length] =  "Al eliminar \"" + destino + "\" se requiere una modificar \"" + origen + "\".";
+            console.log("* Al eliminar \"" + destino + "\" se requiere una modificar \"" + origen + "\"\n");
+            color[origen] = NARANJA;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + destino + "\" a la entidad \"" + origen + "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+function trigger_DO(origen, destino, cambio)
+{
+    var cambio_consecuente;
+    
+    avisos[avisos.length] = "No hay un impacto del cambio desde \"" + destino + "\" a \"" + origen + "\" en la relacion trigger.\n"; 
+    console.log("* No hay un impacto del cambio desde \"" + destino + "\" a \"" + origen + "\" en la relacion trigger\n");
+    color[origen] = VERDE;
+    cambio_consecuente = NINGUNO;
+    return cambio_consecuente;
+}
+
+function realization_DO(origen, destino, cambio)
+{
+    var cambio_consecuente;
+
+    switch(cambio) {
+    
+        case EXTENSION:
+            avisos[avisos.length] = "Si extiendes  \"" + destino + "\" puede requerir una extension en \""+ origen + "\".";
+            console.log("* Si extiendes  \"" +  destino + "\" puede requerir una extension en la entidad \""+ origen +"\".\n");
+            color[origen] = AMARILLO;
+            cambio_consecuente = EXTENSION;
+            return cambio_consecuente;
+            break;
+        case ELIMINACION:
+            avisos[avisos.length] = "si se elimina \"" + destino + "\" no se produce un efecto en la entidad \"" + origen + "\".";
+            console.log("* Si se elimina \"" + destino + "\" no se produce un efecto en la entidad \"" +  origen + "\".\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Si modificas \"" + destino + "\"se requiere modificar \"" + origen + "\"."; 
+            console.log("* Si modificas \"" + destino + "\" se requiere modificar \"" +  origen +"\"\n");
+            color[origen] = NARANJA;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break; 
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + destino + "\" a la entidad \"" + origen + "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+function use_DO(origen, destino, cambio)
+{
+    var cambio_consecuente;
+    
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Al extender \"" + destino + "\"se requiere extender \""+ origen + "\"."; 
+            console.log("* Al extender \"" + destino + "\" se requiere extender \"" + origen + "\"\n");
+            color[origen] = AMARILLO;
+            cambio_consecuente = EXTENSION;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Al modificar \""+ destino + "\"se requiere modificar \"" + origen + "\".";
+            console.log("* Al modificar \""+ destino + "\" se requiere modificar \"" + origen + "\"\n");
+            color[origen] = NARANJA;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break; 
+        case ELIMINACION:
+            avisos[avisos.length] = "Al eliminar \"" + destino + "\"NO hay algun efecto en \"" +  origen + "\"."; 
+            console.log("* Al eliminar \"" + destino + "\" NO hay algun efecto en \"" +  origen + "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + destino + "\" a la entidad \"" + origen + "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+function access_DO (origen, destino, cambio)
+{
+    var cambio_consecuente;
+    
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Al extender \"" + destino + "\" No habria efecto en \""+ origen + "\".";
+            console.log("* Al extender \"" + destino + "\" No habria efecto en \""+ origen + "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Al modificar \""+ destino + "\" se requiere modificar \"" + origen + "\".";
+            console.log("* Al modificar \""+ destino + "\"se requiere modificar \"" + origen + "\".\n");
+            color[origen] = NARANJA;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break; 
+        case ELIMINACION:
+            avisos[avisos.length] = "Al eliminar \"" + destino + "\" NO se tiene acceso a \"" +  origen + "\nSe sugiere reajustar el modelo vinculando la relacion de acceso a otro objeto."
+            console.log("* Al eliminar \"" + destino + "\" NO se tiene acceso a \"" +  origen + "\".");
+            console.log(" Se sugiere reajustar el modelo vinculando la relacion de acceso a otro objeto\n");
+            color[origen] = AMARILLO;
+            cambio_consecuente = EXTENSION;
+            return cambio_consecuente;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + destino + "\" a la entidad \"" + origen + "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+function association_DO(origen , destino, cambio)
+{
+    var cambio_consecuente;
+
+    switch(cambio) {
+        case EXTENSION:
+            avisos[avisos.length] = "Extender \"" + destino + "\" no trae algun efecto en \"" + origen + "\"."; 
+            console.log("* Extender \"" + destino + "\" no produce efecto en \"" + origen + "\".\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+        case MODIFICACION:
+            avisos[avisos.length] = "Modificar \"" + destino + "\" implica una extencion o modificacion en \"" + origen + "\"."; 
+            console.log("* Modificar \"" + destino + "\" implica una extencion o modificacion en \"" + origen + "\"\n");
+            color[origen] = COLOR_EXTMOD;
+            cambio_consecuente = MODIFICACION;
+            return cambio_consecuente;
+            break; 
+        case ELIMINACION:
+            avisos[avisos.length] = "Si se elimina \""+ destino + "\" afecta a \"" + origen + "\"en la association." + "\nNo cuenta con la informacion suministrada";
+            console.log("* Si se elimina \""+ destino + "\" afecta a \"" + origen + "\"en la association");
+            console.log("  No cuenta con la informacion suministrada, se necita un cambio tipo extension");
+            console.log("  Ya que puede ser reasignado\n");
+            color[origen] = AMARILLO;
+            cambio_consecuente = EXTENSION;
+            return cambio_consecuente;
+            break;
+        case NINGUNO:
+            console.log("* No existe algun impacto del cambio desde la entidad \"" + destino + "\" a la entidad \"" + origen + "\"\n");
+            color[origen] = VERDE;
+            cambio_consecuente = NINGUNO;
+            return cambio_consecuente;
+            break;
+    }
+}
+
+function impacto_cambio_DO(destino, origen, relacion, cambio)
+{
+    var cambio_consecuente;
+    if(cambio ==  NINGUNO)
+    {
+        console.log("* No existe algun impacto del cambio desde la entidad \"" + destino + "\" a la entidad \"" + origen + "\"\n");
+        color[origen] = VERDE;
+        cambio_consecuente = NINGUNO;
+        return cambio_consecuente;
+    }
+    if(relacion == "access-relationship")
+    {
+        cambio_consecuente = access_DO(origen, destino, cambio);
+        return cambio_consecuente;
+    }
+    if(relacion == "serving-relationship")
+    {
+        cambio_consecuente =  use_DO(origen, destino, cambio);
+        return cambio_consecuente;
+    }
+    if(relacion == "realization-relationship")
+    {
+        cambio_consecuente = realization_DO(origen, destino, cambio);
+        return cambio_consecuente;
+    }
+    if(relacion== "triggering-relationship")
+    {	
+        cambio_consecuente = trigger_DO(origen, destino, cambio);	
+        return cambio_consecuente;
+    }
+    if(relacion == "association-relationship")
+    {
+         cambio_consecuente = association_DO(origen, destino, cambio);
+         return cambio_consecuente;
+    }
+    if(relacion == "aggregation-relationship")
+    {
+        cambio_consecuente = aggregation_DO(origen, destino, cambio);
+        return cambio_consecuente;
+    }
+    if(relacion == "composition-relationship")
+    {
+        cambio_consecuente = composition_DO(origen, destino, cambio);
+        return cambio_consecuente;
+    }
+    if(relacion == "assignment-relationship")
+    {
+        cambio_consecuente = assignment_DO(origen, destino, cambio);
+        return cambio_consecuente;
+    }   
+  
+    if(relacion == "flow-relationship")
+    {
+        cambio_consecuente = flow_DO(origen, destino, cambio);
+        return cambio_consecuente;
+    }
+    if(relacion == "specialization-relationship" || relacion == 'junction' || relacion == 'groupin')
+    {
+        
+       cambio_consecuente = no_afecto(destino, origen);
+       return cambio_consecuente;
+    }    
+}
+
+/// Desencolar elemento
+function  desencolar()
+{
+   
+    var aux; 
+    var i;
+    var tam = v_cola.length - 1;
+    for(i = 0; i < tam; i++)
+    {
+        var t;
+        t = i + 1;
+        aux = v_cola[t];
+        v_cola[i] = aux;
+    }
+    v_cola.length = v_cola.length - 1;
+    //console.log(v_cola);
+}
+
+function recorrido(vertice, cambio)
+{
+    marca[marca.length] = vertice;
+    cambios_vertice[vertice] = cambio;
+    DFS_AnalisisImpacto(vertice);
+   /// BFS(vertice, cambio, index, band_s);
+}
+
+/// Recorrido Recursivo DFS
+function DFS_AnalisisImpacto(v)
+{
+    var suc = sucesores(v);
+    var tam_s = tam_dic(suc, v);
+    var pred = predecesores(v);
+    var tam_p = tam_dic(pred, v);
+    var aux;
+    var i = 0;
+    var j = 0;
+    var cambio_aux;
+    var cambio;
+
+    cambio = cambios_vertice[v];
+
+    ///Analisis de Sucesores
+    while(i < tam_s)
+    {
+        if(!esta_marcada(suc[v][i][0]))
+        {
+            marca[marca.length]=suc[v][i][0];
+            cambio_aux = impacto_cambio_OD(v, suc[v][i][0], suc[v][i][1], cambio);
+            ///console.log("cambio_aux: " + cambio_aux + "Vertice: " + suc[v][i][0] + " color: " + cual_color(suc[v][i][0]));
+            ///console.log("-----------------------------------------------------------------------------------------------");
+            cambios_vertice[suc[v][i][0]] = cambio_aux;
+            if(!esta_elem(suc[v][i][0]))
+            {
+                v_cola[v_cola.length] = suc[v][i][0];
+            }
+        }
+        i = i + 1;
+    }
+    ///Analisis de Predecesores
+    while(j < tam_p)
+    {
+        if(!esta_marcada(pred[v][j][0]))
+        {
+            marca[marca.length] = pred[v][j][0];
+            cambio_aux = impacto_cambio_DO(v,  pred[v][j][0],  pred[v][j][1], cambio);
+            cambios_vertice[pred[v][j][0]] = cambio_aux;
+            if (!esta_elem(pred[v][j][0])) {
+                v_cola[v_cola.length] = pred[v][j][0];
+            }
+             
+        }
+        j = j + 1;
+    }
+    while(v_cola.length > 0)
+    {
+        aux = v_cola[0];
+        desencolar();
+        DFS_AnalisisImpacto(aux);
+    }
+}
+
+function imprimir_colores()
+{
+    console.log("Colores");
+    for(var key in color)
+    {
+        var value = color[key];
+        console.log("vertice: " + key + " Color: " + cual_color(key));
+        // do something with "key" and "value" variables
+    }
+}
+
+function pintar_archimate(v_principal) 
+{
+    for(var key in color) 
+    {
+        var value = color[key];
+        $("element").each(function(e) {
+            $(e).objectRefs().attr("opacity", 170);
+            ///console.log("elem " + e.name + "  key " + key + "value  " + value + "\n");
+            if (e.name == key)
+            {
+                if(value == ROJO){
+                    $(e).objectRefs().attr("fillColor", "#ff0000");
+                }
+                if(value == NARANJA){
+                    $(e).objectRefs().attr("fillColor", "#ff8000");
+                }
+                if(value == VERDE){
+                    $(e).objectRefs().attr("fillColor", "#00ff00");
+                }
+                if(value == AMARILLO){ 
+                    $(e).objectRefs().attr("fillColor", "#ffff00");
+                }
+                if (value == COLOR_EXTMOD){
+                    $(e).objectRefs().attr("fillColor", "#ff4000");
+                }
+            }
+        });
+    }
+}
+
+///imprimir_grafo(grafo);
+/*
+console.log("predecesores");
+var pred = predecesores("Lista de Flores");
+imprimir_grafo(pred);
+console.log("sucesores");
+var suc = sucesores("Verifica Precio");
+imprimir_grafo(suc);
+*/
+selection.filter("element").first().fillColor = "#0000ff";
+selection.filter("element").first().opacity = 170;
+var cambio = ventana();
+var origen_sel = selection.filter("concept").first().name;
+console.log("ELEMENTO SELECCIONADO: " + origen_sel);
+console.log("-------------------------------------------------------------------------");
+vertices();
+llenar_grafo();
+console.log("AVISOS PARA EL USUARIO ");
+console.log("===========================================================================");
+recorrido(origen_sel, cambio);
+console.log("===========================================================================");
+console.log("COLORES RESULTANTE");
+console.log("---------------------------------------------------------------------------");
+imprimir_colores();
+pintar_archimate(origen_sel);
